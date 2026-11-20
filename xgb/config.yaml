@@ -1,0 +1,309 @@
+# ============================================================================
+# config.yaml — settings shared by build_features.py and train_xgb.py
+#
+# To adapt first:
+#   - paths.*
+#   - columns.* and features.*_col (exact column names of the CSV files)
+#   - stations.<name>.coast_normal_deg (coast normal of each harbour)
+# ============================================================================
+
+# Time step of the CSV files (minutes). All durations (lags, windows, events)
+# are given in hours and converted into time steps with this value.
+cadence_minutes: 10
+
+# ----------------------------------------------------------------------------
+# Paths
+# ----------------------------------------------------------------------------
+paths:
+  input_csv_dir:     ./data/csv/raw/        # raw per-station CSV files (input of build_features.py)
+  enriched_csv_dir:  ./data/csv/enriched/   # enriched CSV files (output of build_features.py)
+  output_root:       ./out_xgb/
+
+# ----------------------------------------------------------------------------
+# Time split: train / test
+# ----------------------------------------------------------------------------
+#   - train: [start of the data, end_train[  → nested CV + final model
+#   - test:  [end_train, end_test[           → scores, events, figures
+#                                              (outputs suffixed _test)
+# Hyperparameters are selected by the nested CV on the training set only.
+# To compare settings (weights, features…), use the RMSE of the folds
+# (reports/cv_{station}.json), not the test set, which should only be used
+# for the final score.
+dates:
+  end_train: 2025-03-01 00:00:00   # every winter up to 2024-25 included
+  end_test:  2026-03-01 00:00:00   # winter 2025-26
+
+  # Inference + parquet export period (predictions/validation_{station}),
+  # outside train and test. Comment out to disable.
+  validation:
+    start: 2026-03-01 00:00:00
+    end:   2026-07-01 00:00:00
+
+# ----------------------------------------------------------------------------
+# Columns (used by both scripts)
+# ----------------------------------------------------------------------------
+columns:
+  surge_obs:  surge_obs   # observed surge
+  surge_mod:  surge_mod   # Tolosa modelled surge
+
+target: surge_error    # target: surge_obs − surge_mod
+
+# Predictors = every column of the enriched CSV except the target and the
+# columns listed here. surge_obs must be listed: together with surge_mod, it
+# gives the target directly.
+drop_predictors:
+  - surge_obs
+
+# ----------------------------------------------------------------------------
+# Sample weights (function of the observed surge)
+# ----------------------------------------------------------------------------
+# 'power': continuous weight (|surge_obs| + eps)^p — recommended.
+# 'quantile_boost': weight alpha above quantile q, 1 otherwise.
+sample_weight:
+  # Parameters of the other schemes:
+  kind: quantile_boost
+  q: 0.95
+  alpha: 5.0
+
+random_state: 42
+
+# ----------------------------------------------------------------------------
+# Per-station cache
+# ----------------------------------------------------------------------------
+# The tuning of a station is skipped if models/XGB_{station}.joblib and
+# reports/cv_{station}.json exist and the cache_context block of this JSON
+# matches the current state: training period and size, predictors (and their
+# order), target, sample_weight, random_state, cv.winter_start_month, and the
+# optuna, xgb_fixed and xgb_param_space sections. Otherwise, full tuning.
+# Downstream outputs (scores, events, figures, parquet) are always
+# regenerated. The data values themselves are not checked: use --no-cache
+# after reprocessing the input data.
+# `--no-cache` forces the re-tuning of every station.
+cache:
+  enabled: true
+  # Checkpoint written after each outer CV fold in reports/checkpoints/: an
+  # interrupted job (time limit) only recomputes the missing folds. Deleted
+  # once the station is complete. Also disabled by --no-cache.
+  fold_checkpoints: true
+
+# ----------------------------------------------------------------------------
+# Nested CV by winter
+# ----------------------------------------------------------------------------
+# Outer loop: leave-one-winter-out (Oct → Sep seasons, adjustable start).
+# Inner loop: Optuna + early stopping (below).
+# The final model is refitted on the whole training set.
+cv:
+  winter_start_month: 10
+
+# ----------------------------------------------------------------------------
+# Optuna tuning (TPE) + early stopping
+# ----------------------------------------------------------------------------
+# In each outer fold (and for the final tuning), the data are split
+# chronologically:
+#   - first (1 − inner_val_fraction) → fit of each trial;
+#   - last inner_val_fraction        → early stopping and trial score
+#                                      (unweighted RMSE).
+# Each trial fits up to n_estimators_max trees, stopping after
+# early_stopping_rounds iterations without improvement.
+# Final refit on the whole inner training set with
+# n_estimators = round(best_iteration × n_estimators_refit_scale).
+#
+# Parallelism: only one level active at a time. Keep trial_n_jobs=1 with
+# xgb_n_jobs=-1 (OpenMP); combining both oversubscribes the threads and can
+# hang the job.
+optuna:
+  n_trials:                  200
+  early_stopping_rounds:     50
+  inner_val_fraction:        0.2
+  n_estimators_max:          2500    # upper bound; early stopping cuts earlier
+  n_estimators_refit_scale:  1.25    # ≈ 1 / (1 − inner_val_fraction)
+  trial_n_jobs:              1
+  # Maximum duration of each study (one fold or the final tuning), in seconds.
+  # Once reached, Optuna keeps the best trial found. Size it so that
+  # (n_folds + 1) studies fit within the job time limit: e.g. 2-day limit,
+  # 5 folds + 1 final → 6 × 25000 s ≈ 42 h. null = no limit.
+  timeout_s:                 null
+  xgb_n_jobs:                -1      # all cores (see OMP_NUM_THREADS)
+
+# ----------------------------------------------------------------------------
+# Fixed XGBoost parameters (not tuned)
+# ----------------------------------------------------------------------------
+xgb_fixed:
+  objective:    reg:squarederror
+  tree_method:  hist
+
+# ----------------------------------------------------------------------------
+# Hyperparameter search space (Optuna)
+# ----------------------------------------------------------------------------
+#   {low: a, high: b}              → uniform (integer if a and b are integers)
+#   {low: a, high: b, log: true}   → log-uniform
+#   {choices: [...]}               → categorical
+# `float: true` forces a float even if the bounds are integers.
+xgb_param_space:
+  learning_rate:      {low: 0.005, high: 0.15,  log: true}
+  max_depth:          {low: 3,     high: 15}
+  min_child_weight:   {low: 1,     high: 100,   log: true}
+  gamma:              {low: 1.0e-4, high: 5.0,  log: true}
+  subsample:          {low: 0.5,   high: 1.0}
+  colsample_bytree:   {low: 0.4,   high: 1.0}
+  colsample_bylevel:  {low: 0.5,   high: 1.0}
+  colsample_bynode:   {low: 0.5,   high: 1.0}
+  reg_alpha:          {low: 1.0e-3, high: 20.0, log: true}
+  reg_lambda:         {low: 1.0e-3, high: 20.0, log: true}
+  max_bin:            {choices: [128, 256, 512]}
+  grow_policy:        {choices: [depthwise, lossguide]}
+  max_leaves:         {low: 0,     high: 255}    # 0 = no limit
+
+# ----------------------------------------------------------------------------
+# Event detection (test block)
+# ----------------------------------------------------------------------------
+# Threshold = quantile of the observed surge over the training set (no future
+# data). Events are detected on a regular time grid: missing observations
+# count as below the threshold, and data gaps count in durations and in the
+# merge gap.
+events:
+  quantile:        0.95
+  min_duration_h:  12.0
+  merge_gap_h:     12.0
+
+# ----------------------------------------------------------------------------
+# Feature importance (figure figs/importance_test_{station}.pdf)
+# ----------------------------------------------------------------------------
+# MDI (native XGBoost importance) is always plotted. Permutation importance
+# (performance drop) adds a second panel; costly: n_features × perm_n_repeats
+# predictions.
+importance:
+  permutation:       false
+  perm_n_repeats:    10
+  perm_max_samples:  0.3      # fraction (or number) of test rows
+
+# ============================================================================
+# FEATURE BUILDER (build_features.py)
+# ============================================================================
+features:
+
+  # --- Input columns (surge_mod is taken from `columns`) ---
+  tide_col:         tide
+
+  # Wind: u10/v10, or otherwise speed + direction (degrees, meteorological
+  # convention).
+  u10_col:          u10
+  v10_col:          v10
+  wind_speed_col:   wind_speed   # computed from u10/v10 if missing from the CSV
+  # wind_dir_col:   wind_dir
+  # wind_dir_offset_deg: 270
+
+  msl_col:          msl
+  hs_col:           Hs
+  tm0_col:          T0m1
+
+  ibi_ssh_col:      zos
+  ibi_u_col:        uo_s
+  ibi_v_col:        vo_s
+
+  # --- Lags (hours) ---
+  lag_cols:
+    - u10
+    - v10
+    - msl
+    - Hs
+    - surge_mod
+    - zos
+    - tide
+  lag_hours: [1, 3, 6, 12, 24, 48]
+
+  # --- Centred derivatives (hourly rate of change) ---
+  derivative_cols:
+    - msl
+    - u10
+    - v10
+    - Hs
+    - surge_mod
+    - zos
+
+  # --- Rolling statistics (backward-looking window) ---
+  rolling_aggregates:
+    - {col: wind_speed, window_h: 6,  agg: max}
+    - {col: wind_speed, window_h: 12, agg: max}
+    - {col: wind_speed, window_h: 6,  agg: mean}
+    - {col: wind_speed, window_h: 12, agg: mean}
+    - {col: Hs,         window_h: 6,  agg: max}
+    - {col: Hs,         window_h: 12, agg: max}
+    - {col: msl,        window_h: 24, agg: min}
+    - {col: msl,        window_h: 24, agg: mean}
+    - {col: msl,        window_h: 24, agg: max}
+    - {col: msl,        window_h: 168, agg: min}
+    - {col: msl,        window_h: 168, agg: mean}
+    - {col: msl,        window_h: 168, agg: max}
+    - {col: u10,        window_h: 6, agg: min}
+    - {col: u10,        window_h: 6, agg: mean}
+    - {col: u10,        window_h: 6, agg: max}
+    - {col: u10,        window_h: 12, agg: min}
+    - {col: u10,        window_h: 12, agg: mean}
+    - {col: u10,        window_h: 12, agg: max}
+    - {col: v10,        window_h: 6, agg: min}
+    - {col: v10,        window_h: 6, agg: mean}
+    - {col: v10,        window_h: 6, agg: max}
+    - {col: v10,        window_h: 12, agg: min}
+    - {col: v10,        window_h: 12, agg: mean}
+    - {col: v10,        window_h: 12, agg: max}
+    - {col: zos,        window_h: 168, agg: min}
+    - {col: zos,        window_h: 168, agg: mean}
+    - {col: zos,        window_h: 168, agg: max}
+    - {col: zos_minus_ssh,        window_h: 24, agg: max}
+    - {col: zos_minus_ssh,        window_h: 24, agg: min}
+    - {col: zos_minus_ssh,        window_h: 24, agg: mean}
+    - {col: zos_minus_ssh,        window_h: 168, agg: min}
+    - {col: zos_minus_ssh,        window_h: 168, agg: mean}
+    - {col: zos_minus_ssh,        window_h: 168, agg: max}
+    - {col: surge_mod,  window_h: 6,  agg: max}
+    - {col: surge_mod,  window_h: 12, agg: max}
+    - {col: surge_mod,  window_h: 24, agg: max}
+    - {col: surge_mod,  window_h: 72, agg: max}
+    - {col: surge_mod,  window_h: 6,  agg: mean}
+    - {col: surge_mod,  window_h: 12, agg: mean}
+    - {col: surge_mod,  window_h: 24, agg: mean}
+    - {col: surge_mod,  window_h: 72, agg: mean}
+    - {col: surge_mod,  window_h: 6, agg: min}
+    - {col: surge_mod,  window_h: 12, agg: min}
+    - {col: surge_mod,  window_h: 24, agg: min}
+    - {col: surge_mod,  window_h: 72, agg: min}
+    - {col: surge_mod,  window_h: 168, agg: min}
+    - {col: surge_mod,  window_h: 168, agg: mean}
+    - {col: surge_mod,  window_h: 168, agg: max}
+    - {col: surge_mod,  window_h: 720, agg: min}
+    - {col: surge_mod,  window_h: 720, agg: mean}
+    - {col: surge_mod,  window_h: 720, agg: max}
+
+# ----------------------------------------------------------------------------
+# Per-station settings (at least coast_normal_deg)
+# ----------------------------------------------------------------------------
+# Keys: station identifier, or any alias from stations.json (case- and
+# separator-insensitive). A station without an entry gets no cross/along-shore
+# features.
+#
+# coast_normal_deg: angle in degrees, counter-clockwise (0° = east,
+# 90° = north), of the normal pointing from the sea towards the land.
+# Example: Aquitaine coast (sea to the west) → 0°, n = (1, 0); a westerly wind
+# (u > 0) gives wind_cross > 0 (onshore wind).
+#
+# Dominant orientation of the open coast, accuracy ±15-20°.
+stations:
+  # Atlantic coast, south to north
+  BOUCAU_BAYONNE:       { coast_normal_deg:   0 }   # Adour, sea to the W
+  ARCACHON_EYRAC:       { coast_normal_deg:   0 }   # sea to the W
+  PORT_BLOC:            { coast_normal_deg:   0 }   # Pointe de Grave, sea to the W
+  LA_ROCHELLE_PALLICE:  { coast_normal_deg:  10 }   # Pertuis d'Antioche
+  LES_SABLES_D_OLONNE:  { coast_normal_deg:  50 }   # Vendée, sea to the SW
+  LE_CROUESTY:          { coast_normal_deg:  90 }   # Morbihan entrance, sea to the S
+  CONCARNEAU:           { coast_normal_deg:  80 }   # southern Brittany, sea to the SSW
+  BREST:                { coast_normal_deg:   0 }   # sheltered roadstead, exposed through the Goulet (W)
+  LE_CONQUET:           { coast_normal_deg:   0 }   # western tip of Brittany, sea to the W
+  # English Channel, west to east
+  ROSCOFF:              { coast_normal_deg: 270 }   # northern Brittany, sea to the N
+  SAINT_MALO:           { coast_normal_deg: 290 }   # Saint-Malo bay, sea to the NNW
+  CHERBOURG:            { coast_normal_deg: 270 }   # northern Cotentin, sea to the N
+  LE_HAVRE:             { coast_normal_deg:   0 }   # Seine estuary / Cap de la Hève, sea to the W
+  BOULOGNE_SUR_MER:     { coast_normal_deg:   0 }   # Côte d'Opale, sea to the W
+  CALAIS:               { coast_normal_deg: 270 }   # Strait of Dover, sea to the N
+  DUNKERQUE:            { coast_normal_deg: 270 }   # North Sea, sea to the N

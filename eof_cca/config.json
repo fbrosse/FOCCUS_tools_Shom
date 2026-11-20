@@ -1,0 +1,120 @@
+{
+  "_comment": "Data configuration of eof_cca.py. Paths are relative to the launch directory. dac_dir: AVISO DAC files (dac_dif_<CNES day>_<HH>.nc), directory walked recursively (a file or a glob also works); dac_var: DAC variable name. tolosa_2d_full / tolosa_2d_ms: Tolosa 2D files (full and ms, surge = full − ms); tolosa_1d_full_dir / tolosa_1d_ms_dir: folders of the Tolosa 1D CSVs at the ports. ports.<P>: Tolosa 1D CSV file name of the port and its position (lat/lon in degrees), used for the Parquet export.",
+  "sat_l4_file": "duacs/cmems_obs-sl_eur_phy-ssh_my_allsat-l4-duacs-0.0625deg_P1D_sla_30.03W-42.03E_19.97N-66.03N_2021-04-01-2026-01-16.nc",
+  "ibi_file": "ibi/cmems_mod_ibi_phy-ssh_anfc_detided-0.027deg_P1D-m_zos_detided_10.00W-4.97E_43.03N-56.00N_2022-11-22-2026-05-01.nc",
+  "ibi_var": "zos_detided",
+  "dac_dir": "aviso/DAC/",
+  "dac_var": "dac",
+  "tolosa_2d_full": "tolosa/2D/htot_20220901_20260501.nc",
+  "tolosa_2d_ms": "tolosa/2D/htot_ms_20220901_20260501.nc",
+  "tolosa_1d_full_dir": "tolosa/1D/full",
+  "tolosa_1d_ms_dir": "tolosa/1D/ms",
+  "weights_dir": "projs",
+  "ports": {
+    "ARCACHON_EYRAC": {
+      "tolosa_csv": "Arcachon.csv",
+      "lat": 44.665001,
+      "lon": -1.16355
+    },
+    "BOUCAU_BAYONNE": {
+      "tolosa_csv": "Boucau_Bayonne.csv",
+      "lat": 43.52732,
+      "lon": -1.51483
+    },
+    "BOULOGNE-SUR-MER": {
+      "tolosa_csv": "Boulogne-sur-mer.csv",
+      "lat": 50.72738,
+      "lon": 1.57766
+    },
+    "BREST": {
+      "tolosa_csv": "Brest.csv",
+      "lat": 48.3829,
+      "lon": -4.49504
+    },
+    "CALAIS": {
+      "tolosa_csv": "Calais.csv",
+      "lat": 50.969399,
+      "lon": 1.86772
+    },
+    "CHERBOURG": {
+      "tolosa_csv": "Cherbourg.csv",
+      "lat": 49.651447,
+      "lon": -1.635508
+    },
+    "CONCARNEAU": {
+      "tolosa_csv": "Concarneau.csv",
+      "lat": 47.873549,
+      "lon": -3.907207
+    },
+    "DIEPPE": {
+      "tolosa_csv": "Dieppe.csv",
+      "lat": 49.92917,
+      "lon": 1.08449
+    },
+    "DUNKERQUE": {
+      "tolosa_csv": "Dunkerque.csv",
+      "lat": 51.048091,
+      "lon": 2.366698
+    },
+    "ILE_D_AIX": {
+      "tolosa_csv": "Fouras_Ile_d_Aix.csv",
+      "lat": 46.007357,
+      "lon": -1.174341
+    },
+    "LA_ROCHELLE_LA_PALLICE": {
+      "tolosa_csv": "La_Rochelle.csv",
+      "lat": 46.158501,
+      "lon": -1.22065
+    },
+    "LE_CONQUET": {
+      "tolosa_csv": "Le_Conquet.csv",
+      "lat": 48.359098,
+      "lon": -4.78075
+    },
+    "LE_CROUESTY": {
+      "tolosa_csv": "Le_Crouesty.csv",
+      "lat": 47.542676,
+      "lon": -2.895167
+    },
+    "LE_HAVRE": {
+      "tolosa_csv": "Le_Havre.csv",
+      "lat": 49.481892,
+      "lon": 0.10598
+    },
+    "LES_SABLES_D_OLONNE": {
+      "tolosa_csv": "Les_Sables_d_Olonne.csv",
+      "lat": 46.497358,
+      "lon": -1.793528
+    },
+    "PORT-BLOC": {
+      "tolosa_csv": "Le_Verdon.csv",
+      "lat": 45.56848,
+      "lon": -1.061555
+    },
+    "PORT-TUDY": {
+      "tolosa_csv": "Port-Tudy.csv",
+      "lat": 47.644274,
+      "lon": -3.445852
+    },
+    "ROSCOFF": {
+      "tolosa_csv": "Roscoff.csv",
+      "lat": 48.718426,
+      "lon": -3.965679
+    },
+    "SAINT-JEAN-DE-LUZ_SOCOA": {
+      "tolosa_csv": "St_Jean-de-Luz.csv",
+      "lat": 43.39524,
+      "lon": -1.68162
+    },
+    "SAINT-MALO": {
+      "tolosa_csv": "St_Malo.csv",
+      "lat": 48.640812,
+      "lon": -2.028103
+    },
+    "SAINT-NAZAIRE": {
+      "tolosa_csv": "St-Nazaire_St_Brevin.csv",
+      "lat": 47.266862,
+      "lon": -2.20155
+    }
+  }
+}
